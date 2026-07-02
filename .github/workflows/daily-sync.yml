@@ -1,0 +1,29 @@
+name: Daily OptiBot Sync
+
+on:
+  schedule:
+    # Run once a day at 03:00 UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch: {} # Allows manual triggering for testing/demo purposes
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t ai-support-agent-task .
+
+      - name: Run sync job
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: docker run -e GEMINI_API_KEY=$GEMINI_API_KEY ai-support-agent-task
+
+      - name: Commit updated sync_state.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sync_state.json data/articles/*.md || true
+          git diff --staged --quiet || git commit -m "chore: update sync_state.json [skip ci]"
+          git push
