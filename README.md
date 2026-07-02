@@ -47,6 +47,24 @@ last-seen value stored in `sync_state.json`:
 Only added/updated articles are re-converted and re-uploaded. Counts are
 logged to console every run.
 
+## Knowledge Base Approach (Local Vector Store via Gemini Embeddings)
+Gemini's Free Tier has no managed vector-store product like OpenAI's, so we
+built a minimal equivalent:
+1. Each markdown article is split into ~800-char chunks with 100-char overlap
+   (paragraph-aware sliding window, `src/vector_store.py`).
+2. Each chunk is embedded via Gemini's Embedding API (`text-embedding-004`).
+3. Chunks + embeddings + metadata (article URL, slug) are persisted to
+   `data/vector_store.json` — our local vector store.
+4. At query time, the question is embedded and compared via cosine
+   similarity against all stored chunks; the top-3 most relevant chunks are
+   passed to `gemini-2.0-flash` as grounding context, along with the strict
+   system instruction.
+
+Only chunks belonging to added/updated articles are re-embedded on each
+daily run (delta sync); unchanged articles' chunks are left untouched in
+the store. Each run logs: files processed, chunks newly embedded, and total
+chunks in the store.
+
 ## Run Locally
 ```bash
 git clone <this-repo>
@@ -70,7 +88,3 @@ builds the Docker image, runs the sync, and commits the updated
 
 👉 View logs: **repo → Actions tab → "Daily OptiBot Sync"**
 (can also be triggered manually via `workflow_dispatch`)
-
-## Sample Assistant Answer
-See `docs/sample-answer-screenshot.png` — question: *"How do I add a YouTube
-video?"*, answered with cited `Article URL:` lines per the system prompt.
