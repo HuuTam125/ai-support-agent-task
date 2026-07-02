@@ -42,35 +42,35 @@ def main():
         changed_paths.append(path)
     print(f"  Saved {len(changed_paths)} markdown files.\n")
 
-    print("Step 4: Uploading changed files to Gemini File API...")
-    
-    client = get_gemini_client()
-    
-    uploaded = []
-    for path in changed_paths:
-        try:
-            filename = os.path.basename(path)
-            
-            gfile = client.files.upload(
-                file=path,
-                config={
-                    "mime_type": "text/markdown",
-                    "display_name": filename
-                }
-            )
-            uploaded.append(gfile)
-            print(f"  Uploaded: {path} -> {gfile.name}")
-        except Exception as e:
-            print(f"  FAILED: {path} ({e})")
-    print(f"  ✅ Uploaded {len(uploaded)}/{len(changed_paths)} changed files.\n")
+    print("Step 4: Chunking + embedding changed articles into vector store...")
+    from src.vector_store import (
+        load_store, save_store, remove_article_chunks, embed_article,
+    )
 
-    print("Step 5: Saving updated sync_state.json...")
-    save_state(new_state)
-    print("  Done.\n")
+    store = load_store()
+    total_new_chunks = 0
 
-    print("=== Sync complete ===")
-    print(f"Summary: added={counts['added']} updated={counts['updated']} skipped={counts['skipped']}")
+    for art, path in zip(to_process, changed_paths):
+        article_id = str(art["id"])
+        with open(path, "r", encoding="utf-8") as f:
+            md_text = f.read()
 
+        # drop stale chunks if this article was previously embedded (update case)
+        store = remove_article_chunks(store, article_id)
+
+        records = embed_article(
+            article_id=article_id,
+            slug=os.path.basename(path).replace(".md", ""),
+            article_url=art["html_url"],
+            markdown_text=md_text,
+        )
+        store.extend(records)
+        total_new_chunks += len(records)
+        print(f"  Embedded {len(records)} chunk(s) for: {art['title']}")
+
+    save_store(store)
+    print(f"\n  ✅ Embedded {len(to_process)} file(s), {total_new_chunks} chunk(s) this run.")
+    print(f"  📦 Vector store now holds {len(store)} total chunks across all articles.\n")
 
 if __name__ == "__main__":
     try:
