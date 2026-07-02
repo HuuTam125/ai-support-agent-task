@@ -6,19 +6,26 @@ and chat with strict system instructions.
 import os
 from dotenv import load_dotenv
 from google import genai 
+from google.genai import types
 
 load_dotenv()
 
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
+SYSTEM_INSTRUCTION = """You are OptiBot, the customer-support bot for OptiSigns.com.
+- Tone: helpful, factual, concise.
+- Only answer using the uploaded docs.
+- Max 5 bullet points; else link to the doc.
+- Cite up to 3 'Article URL:' lines per reply."""
+
 def get_gemini_client() -> genai.Client:
     """
-    Khởi tạo và trả về Google GenAI Client.
+    Initialize and return a Google GenAI Client.
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "GEMINI_API_KEY chưa được set. Kiểm tra file .env hoặc GitHub Secrets."
+            "GEMINI_API_KEY does not set. Check .env file or GitHub Secrets."
         )
     return genai.Client(api_key=api_key)
 
@@ -50,5 +57,32 @@ def upload_markdown_files(directory: str = "data/articles") -> list:
     print(f"\n Successfully uploaded {len(uploaded)}/{len(md_files)} files to Gemini File API.")
     return uploaded
 
+def ask(question: str, uploaded_files: list) -> str:
+    """
+    Sends a question to Gemini along with the uploaded knowledge-base files
+    as grounding context, following the strict system instruction.
+    """
+    client = get_gemini_client()
+    
+    # Kết hợp các file đã upload và câu hỏi vào một list
+    contents = [*uploaded_files, question]
+    
+    # Dùng client.models.generate_content và truyền system_instruction vào config
+    response = client.models.generate_content(
+        model=GEMINI_MODEL_NAME,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+        )
+    )
+    return response.text
+
 if __name__ == "__main__":
-    upload_markdown_files()
+    files = upload_markdown_files()
+    if not files:
+        print("No files uploaded, aborting test chat.")
+    else:
+        test_question = "How do I add a YouTube video?"
+        print(f"\n🤖 Asking: {test_question}\n")
+        answer = ask(test_question, files)
+        print(answer)
