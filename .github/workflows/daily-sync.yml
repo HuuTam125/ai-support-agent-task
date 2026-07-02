@@ -1,5 +1,7 @@
 name: Daily OptiBot Sync
 
+permissions:
+  contents: write
 on:
   schedule:
     # Run once a day at 03:00 UTC
@@ -18,7 +20,11 @@ jobs:
       - name: Run sync job
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: docker run -e GEMINI_API_KEY=$GEMINI_API_KEY ai-support-agent-task
+        run: |
+          docker run --rm \
+            -e GEMINI_API_KEY=$GEMINI_API_KEY \
+            -v "${{ github.workspace }}:/app" \
+            ai-support-agent-task
 
       - name: Commit updated sync_state.json
         run: |
