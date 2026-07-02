@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/articles/*.md
+sync_state.json
+*.log
