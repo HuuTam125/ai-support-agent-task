@@ -1,16 +1,16 @@
 """
-Gemini API client: handles auth, file upload
-and chat with strict system instructions.
+Gemini API client: handles auth, and RAG-based chat 
+using local vector store with strict system instructions.
 """
 
 import os
 from dotenv import load_dotenv
-from google import genai 
+from google import genai
 from google.genai import types
 
 load_dotenv()
 
-GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 SYSTEM_INSTRUCTION = """You are OptiBot, the customer-support bot for OptiSigns.com.
 - Tone: helpful, factual, concise.
@@ -19,58 +19,40 @@ SYSTEM_INSTRUCTION = """You are OptiBot, the customer-support bot for OptiSigns.
 - Cite up to 3 'Article URL:' lines per reply."""
 
 def get_gemini_client() -> genai.Client:
-    """
-    Initialize and return a Google GenAI Client.
-    """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "GEMINI_API_KEY does not set. Check .env file or GitHub Secrets."
+            "GEMINI_API_KEY chưa được set. Kiểm tra file .env hoặc GitHub Secrets."
         )
     return genai.Client(api_key=api_key)
 
-def upload_markdown_files(directory: str = "data/articles") -> list:
+def ask(question: str, k: int = 3) -> str:
     """
-    Uploads every .md file in `directory` to Gemini File API.
-    Returns list of successfully uploaded file objects.
+    Retrieval-augmented answer: embeds the question, retrieves top-k
+    relevant chunks from the local vector store, and feeds only those
+    chunks to Gemini as grounding context.
     """
-    client = get_gemini_client()
-
-    md_files = sorted(f for f in os.listdir(directory) if f.endswith(".md"))
-    uploaded = []
-
-    for i, filename in enumerate(md_files, start=1):
-        filepath = os.path.join(directory, filename)
-        try:
-            gfile = client.files.upload(
-                file=filepath,
-                config={
-                    "mime_type": "text/markdown",
-                    "display_name": filename
-                }
-            )
-            uploaded.append(gfile)
-            print(f"[{i}/{len(md_files)}] Uploaded: {filename} -> {gfile.name}")
-        except Exception as e:
-            print(f"[{i}/{len(md_files)}] FAILED: {filename} ({e})")
-
-    print(f"\n Successfully uploaded {len(uploaded)}/{len(md_files)} files to Gemini File API.")
-    return uploaded
-
-def ask(question: str, uploaded_files: list) -> str:
-    """
-    Sends a question to Gemini along with the uploaded knowledge-base files
-    as grounding context, following the strict system instruction.
-    """
-    client = get_gemini_client()
+    from src.vector_store import load_store, search
     
-    # Kết hợp các file đã upload và câu hỏi vào một list
-    contents = [*uploaded_files, question]
+    client = get_gemini_client()
+    store = load_store()
+    top_chunks = search(question, store, k=k)
+
+    if not top_chunks:
+        return "No knowledge base documents found to answer the question."
+
+    context_blocks = []
+    for c in top_chunks:
+        context_blocks.append(
+            f"Article URL: {c['article_url']}\n\n{c['text']}"
+        )
+    context_text = "\n\n---\n\n".join(context_blocks)
+
+    prompt = f"Context documents:\n\n{context_text}\n\nQuestion: {question}"
     
-    # Dùng client.models.generate_content và truyền system_instruction vào config
     response = client.models.generate_content(
         model=GEMINI_MODEL_NAME,
-        contents=contents,
+        contents=prompt,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
         )
@@ -78,11 +60,6 @@ def ask(question: str, uploaded_files: list) -> str:
     return response.text
 
 if __name__ == "__main__":
-    files = upload_markdown_files()
-    if not files:
-        print("No files uploaded, aborting test chat.")
-    else:
-        test_question = "How do I add a YouTube video?"
-        print(f"\n🤖 Asking: {test_question}\n")
-        answer = ask(test_question, files)
-        print(answer)
+    test_question = "How do I add a YouTube video?"
+    print(f"🤖 Asking: {test_question}\n")
+    print(ask(test_question))
